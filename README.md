@@ -35,14 +35,28 @@ go run main.go ./tmp/go-eth
 
 ## Snippet of the output
 ...
-37  | Stacks (tmp/go-eth/internal/debug/api.go:192:18)
-39  | DumpBlock (tmp/go-eth/eth/api_debug.go:50:22)
-49  | Resend (tmp/go-eth/internal/ethapi/api.go:1645:28)
-57  | GetBlobsV2 (tmp/go-eth/eth/catalyst/api.go:526:26)
-58  | GetAccessibleState (tmp/go-eth/eth/api_debug.go:364:22)
-61  | IntermediateRoots (tmp/go-eth/eth/tracers/api.go:508:17)
-62  | AccountRange (tmp/go-eth/eth/api_debug.go:136:22)
-70  | Syslog (tmp/go-eth/metrics/syslog.go:14:6)
+37    Stacks (tmp/go-eth/internal/debug/api.go:192:18)
+37    NewPendingTransactions (tmp/go-eth/eth/filters/api.go:164:23)
+39    DumpBlock (tmp/go-eth/eth/api_debug.go:50:22)
+49    Resend (tmp/go-eth/internal/ethapi/api.go:1645:28)
+57    GetBlobsV2 (tmp/go-eth/eth/catalyst/api.go:526:26)
+58    GetAccessibleState (tmp/go-eth/eth/api_debug.go:364:22)
+61    IntermediateRoots (tmp/go-eth/eth/tracers/api.go:508:17)
+62    AccountRange (tmp/go-eth/eth/api_debug.go:136:22)
+70    Syslog (tmp/go-eth/metrics/syslog.go:14:6)
 ========================================================
 Total Unused Lines: 3175, Declarations: 571
 ```
+
+
+<!-- 
+
+## publising
+
+git add .
+git commit -m "dustat: release v0.0.1"
+git tag v0.0.1
+git push origin v0.0.1
+GOPROXY=proxy.golang.org go list -m github.com/tompston/dustat@v0.0.1
+
+ -->

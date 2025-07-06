@@ -229,7 +229,7 @@ func (reg *Registry) Report() {
 		fmt.Println("========================================================")
 
 		for _, decl := range reg.Result {
-			fmt.Printf("%-4v| %s (%v)\n", decl.LineCount, decl.Name, decl.Pos.String())
+			fmt.Printf("%-5v %s (%v)\n", decl.LineCount, decl.Name, decl.Pos.String())
 		}
 
 		fmt.Println("========================================================")
