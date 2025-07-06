@@ -59,4 +59,5 @@ git tag v0.0.1
 git push origin v0.0.1
 GOPROXY=proxy.golang.org go list -m github.com/tompston/dustat@v0.0.1
 
+qwe
  -->
