@@ -28,8 +28,10 @@ func runFromCli() error {
 		return fmt.Errorf("usage: dustat [--ignore=MyFunc,MyStruct] <path-to-project>")
 	}
 
-	// projectPath := os.Args[1]
-	projectPath := flag.Arg(0)
+	projectPath, err := getProjectPath(flag.Arg(0))
+	if err != nil {
+		return fmt.Errorf("error getting project path: %v", err)
+	}
 
 	reg, err := NewRegistry(projectPath)
 	if err != nil {
@@ -249,4 +251,25 @@ func makeDecl(name string, start, end token.Pos, fset *token.FileSet) Decl {
 		Pos:       pos,
 		Name:      name,
 	}
+}
+
+func getProjectPath(cliPath string) (string, error) {
+	if cliPath == "" {
+		return "", fmt.Errorf("no project path provided")
+	}
+
+	if cliPath == "." {
+		cwd, err := os.Getwd()
+		if err != nil {
+			return "", fmt.Errorf("unable to determine current working directory: %v", err)
+		}
+		return cwd, nil
+	}
+
+	absPath, err := filepath.Abs(cliPath)
+	if err != nil {
+		return "", fmt.Errorf("unable to resolve absolute path: %v", err)
+	}
+
+	return absPath, nil
 }

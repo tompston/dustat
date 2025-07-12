@@ -20,7 +20,7 @@ git clone https://github.com/tompston/dustat.git
 _note that the path to the `go/bin` directory must be in your PATH environment variable_
 
 ```bash
-# point to the directory of the Go project
+# point to the directory of the Go project (use "." for current directory)
 dustat <path-to-dir>
 # point to the directory, but do not include certain names
 dustat --ignore=MyFuncName,MyStructName <path-to-dir>
@@ -54,10 +54,10 @@ Total Unused Lines: 3175, Declarations: 571
 ## publising
 
 git add .
-git commit -m "dustat: release v0.0.1"
-git tag v0.0.1
-git push origin v0.0.1
-GOPROXY=proxy.golang.org go list -m github.com/tompston/dustat@v0.0.1
+git commit -m "dustat: release v0.0.2"
+git tag v0.0.2
+git push origin v0.0.2
+GOPROXY=proxy.golang.org go list -m github.com/tompston/dustat@v0.0.2
 
 qwe
  -->
