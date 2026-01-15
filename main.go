@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"go/ast"
@@ -21,11 +22,13 @@ func main() {
 
 func runFromCli() error {
 	var ignoreCsv string
+	var jsonOutput bool
 	flag.StringVar(&ignoreCsv, "ignore", "", "comma-separated list of exported identifiers to ignore")
+	flag.BoolVar(&jsonOutput, "json", false, "output results in JSON format")
 	flag.Parse()
 
 	if flag.NArg() < 1 {
-		return fmt.Errorf("usage: dustat [--ignore=MyFunc,MyStruct] <path-to-project>")
+		return fmt.Errorf("usage: dustat [--ignore=MyFunc,MyStruct] [--json] <path-to-project>")
 	}
 
 	projectPath, err := getProjectPath(flag.Arg(0))
@@ -47,7 +50,7 @@ func runFromCli() error {
 		reg.WithIgnoreList(ignore)
 	}
 
-	return reg.Run(true)
+	return reg.Run(true, jsonOutput)
 }
 
 type Decl struct {
@@ -93,7 +96,7 @@ func (reg *Registry) WithIgnoreList(ignore map[string]struct{}) *Registry {
 	return reg
 }
 
-func (reg *Registry) Run(printResult bool) error {
+func (reg *Registry) Run(printResult bool, jsonOutput bool) error {
 	if err := reg.ParseFiles(); err != nil {
 		return fmt.Errorf("error parsing project: %v", err)
 	}
@@ -103,7 +106,7 @@ func (reg *Registry) Run(printResult bool) error {
 	}
 
 	if printResult {
-		reg.Report()
+		reg.Report(jsonOutput)
 	}
 
 	return nil
@@ -219,7 +222,22 @@ func (reg *Registry) AccumulateResult() error {
 	return nil
 }
 
-func (reg *Registry) Report() {
+type Issue struct {
+	Symbol string `json:"symbol"`
+	Line   int    `json:"line"`
+}
+
+type FileIssues struct {
+	File   string  `json:"file"`
+	Issues []Issue `json:"issues"`
+}
+
+func (reg *Registry) Report(jsonOutput bool) {
+	if jsonOutput {
+		reg.ReportJSON()
+		return
+	}
+
 	if len(reg.Result) > 0 {
 
 		// sort ascending by the number of lines in the declaration
@@ -240,6 +258,44 @@ func (reg *Registry) Report() {
 	} else {
 		fmt.Println("No unused exported identifiers found!")
 	}
+}
+
+func (reg *Registry) ReportJSON() {
+	// Group issues by file
+	fileMap := make(map[string][]Issue)
+	for _, decl := range reg.Result {
+		filePath := decl.Pos.Filename
+		fileMap[filePath] = append(fileMap[filePath], Issue{
+			Symbol: decl.Name,
+			Line:   decl.Pos.Line,
+		})
+	}
+
+	// Convert map to slice and sort by file path
+	results := []FileIssues{}
+	for file, issues := range fileMap {
+		// Sort issues by line number within each file
+		sort.Slice(issues, func(i, j int) bool {
+			return issues[i].Line < issues[j].Line
+		})
+		results = append(results, FileIssues{
+			File:   file,
+			Issues: issues,
+		})
+	}
+
+	// Sort by file path
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].File < results[j].File
+	})
+
+	// Output JSON
+	output, err := json.MarshalIndent(results, "", "  ")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error marshaling JSON: %v\n", err)
+		return
+	}
+	fmt.Println(string(output))
 }
 
 func makeDecl(name string, start, end token.Pos, fset *token.FileSet) Decl {
