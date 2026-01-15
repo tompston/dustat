@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"testing"
+	"unicode"
 )
 
 func TestFlow(t *testing.T) {
@@ -67,6 +68,124 @@ func resultIncludesName(result []Decl, name string) error {
 	}
 
 	return fmt.Errorf("expected name %v not found in result", name)
+}
+
+func TestToUnexported(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		// Basic cases
+		{"simple", "MyFunc", "myFunc"},
+		{"single char", "A", "a"},
+		{"empty", "", ""},
+		{"already lowercase", "myFunc", "myFunc"},
+
+		// Common acronyms with words
+		{"HTTP with word", "HTTPServer", "httpServer"},
+		{"API with word", "APIHandler", "apiHandler"},
+		{"XML with word", "XMLParser", "xmlParser"},
+		{"URL with word", "URLPath", "urlPath"},
+		{"JSON with word", "JSONEncoder", "jsonEncoder"},
+		{"SQL with word", "SQLDatabase", "sqlDatabase"},
+		{"TCP with word", "TCPConnection", "tcpConnection"},
+		{"UDP with word", "UDPSocket", "udpSocket"},
+		{"TLS with word", "TLSConfig", "tlsConfig"},
+		{"DNS with word", "DNSResolver", "dnsResolver"},
+
+		// ID cases (special case mentioned in requirements)
+		{"ID alone", "ID", "id"},
+		{"ID with prefix", "UserID", "userID"},
+		{"ID with suffix", "IDGenerator", "idGenerator"},
+		{"AppID", "AppID", "appID"},
+		{"RequestID", "RequestID", "requestID"},
+
+		// Multiple acronyms
+		{"HTTP + API", "HTTPAPI", "httpapi"},
+		{"XML + HTTP", "XMLHTTP", "xmlhttp"},
+		{"HTTP + URL", "HTTPURL", "httpurl"},
+		{"API + URL", "APIURL", "apiurl"},
+
+		// Multiple acronyms with word
+		{"XML + HTTP + Request", "XMLHTTPRequest", "xmlhttpRequest"},
+		{"API + URL + Path", "APIURLPath", "apiurlPath"},
+
+		// All caps (acronyms only)
+		{"HTTP only", "HTTP", "http"},
+		{"API only", "API", "api"},
+		{"XML only", "XML", "xml"},
+		{"URL only", "URL", "url"},
+		{"JSON only", "JSON", "json"},
+
+		// Edge cases
+		{"two letters", "IO", "io"},
+		{"acronym + single letter", "HTTPs", "https"},
+		{"single uppercase + word", "AStruct", "aStruct"},
+
+		// Real-world examples
+		{"HTTPClient", "HTTPClient", "httpClient"},
+		{"HTTPRequest", "HTTPRequest", "httpRequest"},
+		{"HTTPResponse", "HTTPResponse", "httpResponse"},
+		{"XMLDecoder", "XMLDecoder", "xmlDecoder"},
+		{"JSONMarshaler", "JSONMarshaler", "jsonMarshaler"},
+		{"URLEncoder", "URLEncoder", "urlEncoder"},
+		{"APIClient", "APIClient", "apiClient"},
+		{"APIKey", "APIKey", "apiKey"},
+		{"DBConnection", "DBConnection", "dbConnection"},
+		{"OSVersion", "OSVersion", "osVersion"},
+
+		// Should NOT use mixed case
+		{"avoid Url", "Url", "url"},    // Should be URL or url, not Url
+		{"avoid Http", "Http", "http"}, // Should be HTTP or http, not Http
+		{"avoid Id", "Id", "id"},       // Should be ID or id, not Id
+		{"avoid Api", "Api", "api"},    // Should be API or api, not Api
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := toUnexported(tt.input)
+			if result != tt.expected {
+				t.Errorf("toUnexported(%q) = %q; want %q", tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestToUnexportedProperties(t *testing.T) {
+	t.Run("result should start with lowercase", func(t *testing.T) {
+		inputs := []string{"MyFunc", "HTTPServer", "ID", "APIKey", "XMLParser"}
+		for _, input := range inputs {
+			if input == "" {
+				continue
+			}
+			result := toUnexported(input)
+			if result != "" && !unicode.IsLower(rune(result[0])) {
+				t.Errorf("toUnexported(%q) = %q; first character should be lowercase", input, result)
+			}
+		}
+	})
+
+	t.Run("should not create mixed-case acronyms", func(t *testing.T) {
+		// These are invalid patterns we want to avoid
+		badPatterns := []struct {
+			input    string
+			badStart string
+		}{
+			{"HTTPServer", "hTTP"}, // Should be "http", not "hTTP"
+			{"APIHandler", "aPI"},  // Should be "api", not "aPI"
+			{"XMLParser", "xML"},   // Should be "xml", not "xML"
+			{"ID", "iD"},           // Should be "id", not "iD"
+		}
+
+		for _, bp := range badPatterns {
+			result := toUnexported(bp.input)
+			if len(result) >= len(bp.badStart) && result[:len(bp.badStart)] == bp.badStart {
+				t.Errorf("toUnexported(%q) = %q; should not start with %q (mixed-case acronym)",
+					bp.input, result, bp.badStart)
+			}
+		}
+	})
 }
 
 // captureJSONOutput captures stdout and returns the JSON output as a string
