@@ -61,7 +61,7 @@ func runFromCli() error {
 		reg.WithIgnoreList(ignore)
 	}
 
-	if err := reg.Run(!fix && !jsonOutput, jsonOutput); err != nil {
+	if err := reg.Run(!fix, jsonOutput); err != nil {
 		return err
 	}
 
