@@ -422,3 +422,50 @@ func TestJSONOutput(t *testing.T) {
 		}
 	})
 }
+
+func TestRunProducesStdoutOutput(t *testing.T) {
+	const testProjectPath = "./test"
+
+	t.Run("text-output-mode", func(t *testing.T) {
+		reg, err := NewRegistry(testProjectPath)
+		if err != nil {
+			t.Fatalf("failed to create registry: %v", err)
+		}
+
+		output := captureJSONOutput(t, func() {
+			if err := reg.Run(true, false); err != nil {
+				t.Fatalf("Run failed: %v", err)
+			}
+		})
+
+		if output == "" {
+			t.Fatal("expected text output to stdout, got empty string")
+		}
+
+		if !bytes.Contains([]byte(output), []byte("Unused Exported Symbols")) {
+			t.Errorf("expected output to contain 'Unused Exported Symbols', got: %s", output)
+		}
+	})
+
+	t.Run("json-output-mode", func(t *testing.T) {
+		reg, err := NewRegistry(testProjectPath)
+		if err != nil {
+			t.Fatalf("failed to create registry: %v", err)
+		}
+
+		output := captureJSONOutput(t, func() {
+			if err := reg.Run(true, true); err != nil {
+				t.Fatalf("Run failed: %v", err)
+			}
+		})
+
+		if output == "" {
+			t.Fatal("expected JSON output to stdout, got empty string")
+		}
+
+		var result []FileIssues
+		if err := json.Unmarshal([]byte(output), &result); err != nil {
+			t.Fatalf("expected valid JSON output, got parse error: %v\nOutput: %s", err, output)
+		}
+	})
+}
