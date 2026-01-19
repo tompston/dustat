@@ -72,10 +72,10 @@ Total Unused Lines: 3175, Declarations: 571
 ## publising
 
 git add .
-git commit -m "dustat: release v0.0.2"
-git tag v0.0.2
-git push origin v0.0.2
-GOPROXY=proxy.golang.org go list -m github.com/tompston/dustat@v0.0.2
+git commit -m "dustat: release v0.0.3 (Enrico2)"
+git tag v0.0.3
+git push origin v0.0.3
+GOPROXY=proxy.golang.org go list -m github.com/tompston/dustat@v0.0.3
 
 qwe
  -->
