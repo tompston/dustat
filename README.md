@@ -69,7 +69,7 @@ Total Unused Lines: 3175, Declarations: 571
 
 <!-- 
 
-## publising
+## publish
 
 git add .
 git commit -m "dustat: release v0.0.3 (Enrico2)"
