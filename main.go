@@ -1,15 +1,19 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
+	"unicode"
 )
 
 func main() {
@@ -21,11 +25,21 @@ func main() {
 
 func runFromCli() error {
 	var ignoreCsv string
+	var jsonOutput bool
+	var fix bool
+	var dryRun bool
 	flag.StringVar(&ignoreCsv, "ignore", "", "comma-separated list of exported identifiers to ignore")
+	flag.BoolVar(&jsonOutput, "json", false, "output results in JSON format")
+	flag.BoolVar(&fix, "fix", false, "automatically rename unused exported symbols to unexported")
+	flag.BoolVar(&dryRun, "dry-run", false, "preview changes without applying them (requires --fix)")
 	flag.Parse()
 
 	if flag.NArg() < 1 {
-		return fmt.Errorf("usage: dustat [--ignore=MyFunc,MyStruct] <path-to-project>")
+		return fmt.Errorf("usage: dustat [--ignore=MyFunc,MyStruct] [--json] [--fix] [--dry-run] <path-to-project>")
+	}
+
+	if dryRun && !fix {
+		return fmt.Errorf("--dry-run requires --fix")
 	}
 
 	projectPath, err := getProjectPath(flag.Arg(0))
@@ -47,7 +61,15 @@ func runFromCli() error {
 		reg.WithIgnoreList(ignore)
 	}
 
-	return reg.Run(true)
+	if err := reg.Run(!fix, jsonOutput); err != nil {
+		return err
+	}
+
+	if fix {
+		return reg.Fix(dryRun)
+	}
+
+	return nil
 }
 
 type Decl struct {
@@ -93,7 +115,7 @@ func (reg *Registry) WithIgnoreList(ignore map[string]struct{}) *Registry {
 	return reg
 }
 
-func (reg *Registry) Run(printResult bool) error {
+func (reg *Registry) Run(printResult bool, jsonOutput bool) error {
 	if err := reg.ParseFiles(); err != nil {
 		return fmt.Errorf("error parsing project: %v", err)
 	}
@@ -103,7 +125,7 @@ func (reg *Registry) Run(printResult bool) error {
 	}
 
 	if printResult {
-		reg.Report()
+		reg.Report(jsonOutput)
 	}
 
 	return nil
@@ -219,7 +241,22 @@ func (reg *Registry) AccumulateResult() error {
 	return nil
 }
 
-func (reg *Registry) Report() {
+type Issue struct {
+	Symbol string `json:"symbol"`
+	Line   int    `json:"line"`
+}
+
+type FileIssues struct {
+	File   string  `json:"file"`
+	Issues []Issue `json:"issues"`
+}
+
+func (reg *Registry) Report(jsonOutput bool) {
+	if jsonOutput {
+		reg.ReportJSON()
+		return
+	}
+
 	if len(reg.Result) > 0 {
 
 		// sort ascending by the number of lines in the declaration
@@ -242,6 +279,44 @@ func (reg *Registry) Report() {
 	}
 }
 
+func (reg *Registry) ReportJSON() {
+	// Group issues by file
+	fileMap := make(map[string][]Issue)
+	for _, decl := range reg.Result {
+		filePath := decl.Pos.Filename
+		fileMap[filePath] = append(fileMap[filePath], Issue{
+			Symbol: decl.Name,
+			Line:   decl.Pos.Line,
+		})
+	}
+
+	// Convert map to slice and sort by file path
+	results := []FileIssues{}
+	for file, issues := range fileMap {
+		// Sort issues by line number within each file
+		sort.Slice(issues, func(i, j int) bool {
+			return issues[i].Line < issues[j].Line
+		})
+		results = append(results, FileIssues{
+			File:   file,
+			Issues: issues,
+		})
+	}
+
+	// Sort by file path
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].File < results[j].File
+	})
+
+	// Output JSON
+	output, err := json.MarshalIndent(results, "", "  ")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error marshaling JSON: %v\n", err)
+		return
+	}
+	fmt.Println(string(output))
+}
+
 func makeDecl(name string, start, end token.Pos, fset *token.FileSet) Decl {
 	pos := fset.Position(start)
 	endPos := fset.Position(end)
@@ -251,6 +326,152 @@ func makeDecl(name string, start, end token.Pos, fset *token.FileSet) Decl {
 		Pos:       pos,
 		Name:      name,
 	}
+}
+
+// Fix renames all unused exported symbols to unexported using gopls
+func (reg *Registry) Fix(dryRun bool) error {
+	// Check if gopls is installed
+	if _, err := exec.LookPath("gopls"); err != nil {
+		return fmt.Errorf("gopls not found. Install with: go install golang.org/x/tools/gopls@latest")
+	}
+
+	if len(reg.Result) == 0 {
+		fmt.Println("No unused exported symbols to fix!")
+		return nil
+	}
+
+	// Sort by file and line to process in order
+	sort.Slice(reg.Result, func(i, j int) bool {
+		if reg.Result[i].Pos.Filename != reg.Result[j].Pos.Filename {
+			return reg.Result[i].Pos.Filename < reg.Result[j].Pos.Filename
+		}
+		return reg.Result[i].Pos.Line < reg.Result[j].Pos.Line
+	})
+
+	successful := 0
+	skipped := 0
+	failed := 0
+
+	for _, decl := range reg.Result {
+		newName := toUnexported(decl.Name)
+
+		// Skip if name doesn't change (shouldn't happen with exported symbols)
+		if newName == decl.Name {
+			if dryRun {
+				fmt.Printf("⊘ Skip: %s (already unexported) at %s\n", decl.Name, decl.Pos.String())
+			}
+			skipped++
+			continue
+		}
+
+		if dryRun {
+			fmt.Printf("→ Would rename: %s -> %s at %s\n", decl.Name, newName, decl.Pos.String())
+			successful++
+			continue
+		}
+
+		// Use gopls to rename
+		position := fmt.Sprintf("%s:%d:%d", decl.Pos.Filename, decl.Pos.Line, decl.Pos.Column)
+
+		cmd := exec.Command("gopls", "rename", "-w", position, newName)
+
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+
+		if err := cmd.Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "✗ Failed to rename %s: %v\n  %s\n", decl.Name, err, stderr.String())
+			failed++
+			continue
+		}
+
+		fmt.Printf("✓ Renamed: %s -> %s\n", decl.Name, newName)
+		successful++
+	}
+
+	fmt.Println()
+	if dryRun {
+		fmt.Printf("Dry-run summary: %d would be renamed, %d skipped\n", successful, skipped)
+	} else {
+		fmt.Printf("Summary: %d renamed, %d skipped, %d failed\n", successful, skipped, failed)
+		if failed > 0 {
+			return fmt.Errorf("some renames failed")
+		}
+	}
+
+	return nil
+}
+
+// toUnexported converts an exported identifier to unexported following Go naming conventions.
+// It properly handles acronyms and initialisms:
+// - HTTPServer -> httpServer (not hTTPServer)
+// - XMLParser -> xmlParser (not xMLParser)
+// - APIHandler -> apiHandler (not aPIHandler)
+// - ID -> id (not iD)
+// - URLPath -> urlPath
+// - HTTPs -> https (not httPs)
+func toUnexported(name string) string {
+	if name == "" {
+		return name
+	}
+
+	runes := []rune(name)
+	if len(runes) == 1 {
+		return string(unicode.ToLower(runes[0]))
+	}
+
+	// Find the end of the leading uppercase sequence
+	// This tells us where the first non-uppercase character is
+	firstLower := -1
+	for i := 0; i < len(runes); i++ {
+		if !unicode.IsUpper(runes[i]) {
+			firstLower = i
+			break
+		}
+	}
+
+	// If the whole name is uppercase, lowercase it all
+	// Example: "HTTP" -> "http", "ID" -> "id"
+	if firstLower == -1 {
+		for i := range runes {
+			runes[i] = unicode.ToLower(runes[i])
+		}
+		return string(runes)
+	}
+
+	// Now we have some uppercase letters followed by at least one non-uppercase
+	// Determine how many leading characters to lowercase
+	toLowerCount := firstLower
+
+	// If we have 2+ uppercase letters followed by an uppercase letter (new word),
+	// the last uppercase before the new word should not be lowercased
+	// Example: "HTTPServer" -> firstLower=4 (at 'e'), runes[4-1]='S' is uppercase
+	//          We want "http" + "Server", so lowercase first 4 chars (indices 0-3)
+	// Example: "HTTPs" -> firstLower=4 (at 's'), runes[4-1]='P' is uppercase
+	//          We want "https", so lowercase first 4 chars (indices 0-3)
+	// Example: "MyFunc" -> firstLower=1 (at 'y'), runes[0]='M'
+	//          We want "myFunc", so lowercase first 1 char
+
+	if firstLower > 1 && unicode.IsUpper(runes[firstLower-1]) {
+		// We have multiple uppercase letters before a non-uppercase
+		// Check if the non-uppercase character is followed by more content
+		// and if runes[firstLower-1] starts a new capitalized word
+
+		// Pattern: "HTTPServer" where 'S' at firstLower-1 is start of "Server"
+		// We want to keep 'S' capitalized, so only lowercase up to 'P'
+		if firstLower < len(runes)-1 {
+			// There are more characters after firstLower
+			// The uppercase at firstLower-1 likely starts a new word
+			toLowerCount = firstLower - 1
+		}
+		// else: Pattern like "HTTPs" - lowercase all the uppercase part
+	}
+
+	// Lowercase the determined portion
+	for i := 0; i < toLowerCount; i++ {
+		runes[i] = unicode.ToLower(runes[i])
+	}
+
+	return string(runes)
 }
 
 func getProjectPath(cliPath string) (string, error) {

@@ -15,6 +15,11 @@ go install github.com/tompston/dustat@latest
 git clone https://github.com/tompston/dustat.git
 ```
 
+**Note:** The `--fix` flag requires `gopls` to be installed:
+```bash
+go install golang.org/x/tools/gopls@latest
+```
+
 ### Usage
 
 _note that the path to the `go/bin` directory must be in your PATH environment variable_
@@ -22,8 +27,21 @@ _note that the path to the `go/bin` directory must be in your PATH environment v
 ```bash
 # point to the directory of the Go project (use "." for current directory)
 dustat <path-to-dir>
+
 # point to the directory, but do not include certain names
 dustat --ignore=MyFuncName,MyStructName <path-to-dir>
+
+# output results in JSON format
+dustat --json <path-to-dir>
+
+# automatically rename unused exported symbols to unexported (requires gopls)
+dustat --fix <path-to-dir>
+
+# preview what would be renamed without making changes
+dustat --fix --dry-run <path-to-dir>
+
+# combine flags
+dustat --fix --ignore=MyFuncName <path-to-dir>
 ```
 
 ### Examples
